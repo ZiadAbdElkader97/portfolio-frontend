@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -144,109 +144,32 @@ export default function ProjectsPage() {
 
   const visibleCount = isXs ? 1 : isMdDown ? 2 : 3;
   const n = projects.length;
-  const needsLoop = n > visibleCount;
+  const canSlide = n > visibleCount;
+  const [startIndex, setStartIndex] = useState(0);
 
-  const extendedSlides = useMemo(() => {
-    if (!needsLoop) {
-      return projects.map((p) => ({ project: p, reactKey: p.id }));
-    }
-    return [
-      ...projects.map((p) => ({ project: p, reactKey: `${p.id}-a` })),
-      ...projects.map((p) => ({ project: p, reactKey: `${p.id}-b` })),
-      ...projects.map((p) => ({ project: p, reactKey: `${p.id}-c` })),
-    ];
-  }, [needsLoop]);
+  const logicalDotIndex = n > 0 ? ((startIndex % n) + n) % n : 0;
 
-  const [virtualIndex, setVirtualIndex] = useState(() =>
-    needsLoop ? n : 0
-  );
-  const virtualIndexRef = useRef(virtualIndex);
-  const trackRef = useRef(null);
-
-  useLayoutEffect(() => {
-    virtualIndexRef.current = virtualIndex;
-  }, [virtualIndex]);
-
-  useLayoutEffect(() => {
-    setVirtualIndex(needsLoop ? n : 0);
-  }, [needsLoop, n]);
-
-  const viewportRef = useRef(null);
-  const [viewportW, setViewportW] = useState(0);
-
-  useLayoutEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return undefined;
-    const ro = new ResizeObserver(() => {
-      setViewportW(el.clientWidth);
-    });
-    ro.observe(el);
-    setViewportW(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
-
-  const { slideWidth, stepPx } = useMemo(() => {
-    if (viewportW <= 0 || visibleCount <= 0) {
-      return { slideWidth: 0, stepPx: 0 };
-    }
-    const gapsTotal = GAP_PX * (visibleCount - 1);
-    const w = (viewportW - gapsTotal) / visibleCount;
-    return { slideWidth: w, stepPx: w + GAP_PX };
-  }, [viewportW, visibleCount]);
-
-  const translateX =
-    slideWidth <= 0 ? 0 : -virtualIndex * stepPx;
-
-  const handleTransitionEnd = useCallback(
-    (e) => {
-      if (e.propertyName !== "transform") return;
-      if (!needsLoop) return;
-
-      const cur = virtualIndexRef.current;
-      const el = trackRef.current;
-      let next = cur;
-
-      if (cur >= 2 * n) {
-        next = cur - n;
-      } else if (cur < n) {
-        next = cur + n;
-      } else {
-        return;
-      }
-
-      if (el) {
-        el.style.transition = "none";
-      }
-      setVirtualIndex(next);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (el) {
-            el.style.transition = "";
-          }
-        });
-      });
-    },
-    [needsLoop, n]
-  );
+  const visibleProjects = useMemo(() => {
+    if (!n) return [];
+    const count = Math.min(visibleCount, n);
+    return Array.from({ length: count }, (_, i) => projects[(logicalDotIndex + i) % n]);
+  }, [n, logicalDotIndex, visibleCount]);
 
   const slidePrev = () => {
-    if (!needsLoop) return;
-    setVirtualIndex((i) => i - 1);
+    if (!canSlide) return;
+    setStartIndex((i) => i - 1);
   };
 
   const slideNext = () => {
-    if (!needsLoop) return;
-    setVirtualIndex((i) => i + 1);
+    if (!canSlide) return;
+    setStartIndex((i) => i + 1);
   };
 
   const go = (slug) => {
     navigate(`/projects/${slug}`);
   };
 
-  const logicalDotIndex =
-    needsLoop && n > 0
-      ? ((virtualIndex - n) % n + n) % n
-      : 0;
+  
 
   return (
     <Box
@@ -328,7 +251,7 @@ export default function ProjectsPage() {
                 theme={theme}
                 onClick={slidePrev}
                 label={t("projectSliderPrev")}
-                disabled={!needsLoop}
+                disabled={!canSlide}
               />
             </Box>
 
@@ -342,41 +265,16 @@ export default function ProjectsPage() {
                 mx: "auto",
               }}
             >
-              <Box
-                ref={viewportRef}
-                sx={{
-                  overflow: "hidden",
-                  width: "100%",
-                  borderRadius: 2,
-                  direction: "ltr",
-                }}
-              >
+              <Box sx={{ width: "100%", borderRadius: 2 }}>
                 <Box
-                  ref={trackRef}
-                  onTransitionEnd={handleTransitionEnd}
                   sx={{
-                    display: "flex",
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${Math.min(visibleCount, Math.max(n, 1))}, minmax(0, 1fr))`,
                     gap: `${GAP_PX}px`,
-                    width: "max-content",
-                    transform: `translate3d(${translateX}px, 0, 0)`,
-                    transition:
-                      "transform 0.45s cubic-bezier(0.25, 0.8, 0.25, 1)",
-                    willChange: "transform",
                   }}
                 >
-                  {extendedSlides.map(({ project: p, reactKey }) => (
-                    <Box
-                      key={reactKey}
-                      sx={{
-                        flex: "0 0 auto",
-                        width:
-                          slideWidth > 0
-                            ? `${slideWidth}px`
-                            : `calc((100% - ${GAP_PX * (visibleCount - 1)}px) / ${visibleCount})`,
-                        minWidth: 0,
-                        maxWidth: slideWidth > 0 ? `${slideWidth}px` : undefined,
-                      }}
-                    >
+                  {visibleProjects.map((p) => (
+                    <Box key={`visible-${p.id}-${logicalDotIndex}`} sx={{ minWidth: 0 }}>
                       <AppTooltip
                         title={t("projectOpenTooltipTitle")}
                         description={t("projectOpenTooltipDesc")}
@@ -488,7 +386,7 @@ export default function ProjectsPage() {
                 </Box>
               </Box>
 
-              {needsLoop && n > 1 && (
+              {n > 1 && (
                 <Box
                   sx={{
                     display: "flex",
@@ -502,12 +400,12 @@ export default function ProjectsPage() {
                     <Box
                       key={p.id}
                       onClick={() => {
-                        setVirtualIndex(n + i);
+                        setStartIndex(i);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setVirtualIndex(n + i);
+                          setStartIndex(i);
                         }
                       }}
                       role="button"
@@ -547,7 +445,7 @@ export default function ProjectsPage() {
                 theme={theme}
                 onClick={slideNext}
                 label={t("projectSliderNext")}
-                disabled={!needsLoop}
+                disabled={!canSlide}
               />
             </Box>
           </Box>
@@ -565,13 +463,13 @@ export default function ProjectsPage() {
               theme={theme}
               onClick={slidePrev}
               label={t("projectSliderPrev")}
-              disabled={!needsLoop}
+              disabled={!canSlide}
             />
             <ProjectsNavNext
               theme={theme}
               onClick={slideNext}
               label={t("projectSliderNext")}
-              disabled={!needsLoop}
+              disabled={!canSlide}
             />
           </Box>
         </Box>
